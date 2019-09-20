@@ -3,13 +3,19 @@ const dirtyChai = require('dirty-chai');
 const expect = chai.expect;
 const mongoose = require('mongoose');
 
-const plugin = require('./plugin');
-const Audit = require('./model');
+const createPlugin = require('./createPlugin');
+const createModel = require('./createModel');
+const auditPlugin = createPlugin(mongoose);
+
+const Audit = createModel();
 
 chai.use(dirtyChai);
 
 const setupMongoServer = done => {
-  mongoose.connect('mongodb://localhost:27017/audit-test', { useNewUrlParser: true })
+  mongoose.connect(
+    'mongodb://localhost:27017/audit-test',
+    { useNewUrlParser: true, useUnifiedTopology: true, useFindAndModify: false, },
+  )
     .then(() => done()).catch(done);
 };
 
@@ -32,10 +38,12 @@ const createTestModel = (getUser) => {
       default: Date.now()
     },
     empty: String,
-    child: childSchema,
+    child: {
+      type: childSchema
+    },
     entity: entitySchema
   }, { timestamps: true });
-  testSchema.plugin(plugin, getUser);
+  testSchema.plugin(auditPlugin);
   return mongoose.model('tests', testSchema);
 };
 
@@ -53,7 +61,7 @@ describe('audit', function () {
   const TestObject = createTestModel();
 
   it('should return undefined on getUser', function () {
-    expect(plugin.getUser()).to.be.undefined();
+    expect(createPlugin.getUser()).to.be.undefined();
   });
 
   describe('plugin: pre *', function () {
@@ -206,9 +214,9 @@ describe('audit', function () {
             expect(err).to.null();
             expect(audit.length).equal(1);
             const entry = audit[0];
-            expect(entry.changes['entity.array'].from.length).equal(0);
-            expect(entry.changes['entity.array'].to).to.have.members(expectedValues);
-            expect(entry.changes['entity.array'].type).equal('Add');
+            expect(entry.changes.entity).to.be.undefined;
+            expect(entry.changes.entity.array.to).to.have.members(expectedValues);
+            expect(entry.changes.entity.array.type).equal('Add');
           })
         );
     });
@@ -229,9 +237,9 @@ describe('audit', function () {
                 expect(err).to.null();
                 expect(audit.length).equal(2);
                 const entry = audit[1];
-                expect(entry.changes['entity.array'].from).to.have.members(previousValues);
-                expect(entry.changes['entity.array'].to).to.have.members(expectedValues);
-                expect(entry.changes['entity.array'].type).equal('Edit');
+                expect(entry.changes.entity.array.from).to.have.members(previousValues);
+                expect(entry.changes.entity.array.to).to.have.members(expectedValues);
+                expect(entry.changes.entity.array.type).equal('Edit');
               })
             );
         });
@@ -253,9 +261,9 @@ describe('audit', function () {
                 expect(err).to.null();
                 expect(audit.length).equal(2);
                 const entry = audit[1];
-                expect(entry.changes['entity.array'].from).to.have.members(previousValues);
-                expect(entry.changes['entity.array'].to).to.have.members(expectedValues);
-                expect(entry.changes['entity.array'].type).equal('Edit');
+                expect(entry.changes.entity.array.from).to.have.members(previousValues);
+                expect(entry.changes.entity.array.to).to.have.members(expectedValues);
+                expect(entry.changes.entity.array.type).equal('Edit');
               })
             );
         });
@@ -277,9 +285,9 @@ describe('audit', function () {
                 expect(err).to.null();
                 expect(audit.length).equal(2);
                 const entry = audit[1];
-                expect(entry.changes['entity.array'].from).to.have.members(previousValues);
-                expect(entry.changes['entity.array'].to).to.have.members(expectedValues);
-                expect(entry.changes['entity.array'].type).equal('Delete');
+                expect(entry.changes.entity.array.from).to.have.members(previousValues);
+                expect(entry.changes.entity.array.to).to.have.members(expectedValues);
+                expect(entry.changes.entity.array.type).equal('Delete');
               })
             );
         });
@@ -383,7 +391,7 @@ describe('audit', function () {
         });
     });
 
-    it('should create audit trail for update on class', function (done) {
+    xit('should create audit trail for update on class (collection.update was deprecated)', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       const expected = 123;
       test2
@@ -487,7 +495,7 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail for update only for first elem if not multi', function (done) {
+    xit('should create audit trail for update only for first elem if not multi (collection.update was deprecated)', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       const expected = 123;
       test2
@@ -519,12 +527,12 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail for update on instance', function (done) {
+    it('should create audit trail for update (updateOne) on instance', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       const expected = 123;
       test2
         .save()
-        .then(() => test.update(
+        .then(() => test.updateOne(
           { number: expected },
           { __user: auditUser }
         ))
@@ -550,7 +558,7 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail on update with $set', function (done) {
+    xit('should create audit trail on update with $set (collection.update was deprecated)', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       const expected = 123;
       test2
@@ -578,7 +586,7 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail on update with $set if multi', function (done) {
+    xit('should create audit trail on update with $set if multi (collection.update was deprecated)', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       const expected = 123;
       test2
@@ -640,17 +648,14 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail on findOneAndUpdate', function (done) {
+    it('should create audit trail on findById and update (updateOne)', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       const expected = 123;
       test2
         .save()
-        .then(() =>
-          TestObject.findOneAndUpdate(
-            { _id: test._id },
-            { number: expected },
-            { __user: auditUser }
-          ))
+        .then(() => TestObject.findById(test._id )
+          .then(e => e.updateOne({ number: expected, __user: auditUser }))
+        )
         .then(() => {
           Audit.find({}, function (err, audit) {
             expect(err).to.null();
@@ -740,11 +745,8 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail on findOneAndDelete', function (done) {
-      TestObject.findOneAndDelete(
-        { _id: test._id },
-        { __user: auditUser }
-      )
+    it('should create audit trail on findByIdAndDelete', function (done) {
+      TestObject.findByIdAndDelete(test._id, { __user: auditUser })
         .then(() =>
           Audit.find({}, function (err, audit) {
             expect(err).to.null();
@@ -760,15 +762,13 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail on findOneAndDelete only for one item', function (done) {
+    it('should create audit trail on findByIdAndDelete only for one item', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       test2
         .save()
         .then(() =>
-          TestObject.findOneAndDelete(
-            { _id: test._id },
-            { __user: auditUser }
-          ))
+          TestObject.findByIdAndDelete(test._id, { __user: auditUser })
+        )
         .then(() =>
           Audit.find({}, function (err, audit) {
             expect(err).to.null();
@@ -785,11 +785,8 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail on findOneAndRemove', function (done) {
-      TestObject.findOneAndRemove(
-        { _id: test._id },
-        { __user: auditUser }
-      )
+    it('should create audit trail on findByIdAndRemove', function (done) {
+      TestObject.findByIdAndRemove(test._id, { __user: auditUser })
         .then(() =>
           Audit.find({}, function (err, audit) {
             expect(err).to.null();
@@ -805,15 +802,13 @@ describe('audit', function () {
         .catch(done);
     });
 
-    it('should create audit trail on findOneAndRemove only for one item', function (done) {
+    it('should create audit trail on findByIdAndRemove only for one item', function (done) {
       const test2 = new TestObject({ name: 'Unlucky', number: 13 });
       test2
         .save()
         .then(() =>
-          TestObject.findOneAndRemove(
-            { _id: test._id },
-            { __user: auditUser }
-          ))
+          TestObject.findByIdAndRemove(test._id, { __user: auditUser })
+        )
         .then(() =>
           Audit.find({}, function (err, audit) {
             expect(err).to.null();
@@ -834,7 +829,7 @@ describe('audit', function () {
   describe('plugin: user callback', function () {
     it('should use the user callback if provided', function (done) {
       const expectedUser = 'User from function';
-      plugin.getUser = () => expectedUser;
+      createPlugin.getUser = () => expectedUser;
 
       const test = new TestObject({ name: 'Lucky', number: 7 });
       test
@@ -857,7 +852,7 @@ describe('audit', function () {
 
     it('should use the user if provided', function (done) {
       const expectedUser = 'User from parameter';
-      plugin.getUser = () => expectedUser;
+      createPlugin.getUser = () => expectedUser;
 
       const test = new TestObject({ name: 'Lucky', number: 7 });
       test
@@ -880,7 +875,7 @@ describe('audit', function () {
     });
 
     it('should throw error if no user is provided', function (done) {
-      plugin.getUser = () => undefined;
+      createPlugin.getUser = () => undefined;
 
       const test = new TestObject({ name: 'Lucky', number: 7 });
       test

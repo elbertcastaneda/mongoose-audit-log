@@ -1,7 +1,7 @@
-const plugin = require('./src/plugin');
-const model = require('./src/model');
+const createPlugin = require('./src/createPlugin');
+const createModel = require('./src/createModel');
 
 module.exports = {
-  plugin,
-  model
+  createPlugin,
+  getModel: createModel
 };
